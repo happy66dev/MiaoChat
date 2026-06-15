@@ -83,16 +83,48 @@ public class AiService {
             body.add("messages", messages);
             body.addProperty("temperature", 0.8);
             body.addProperty("max_tokens", MiaoChatConfig.getMaxTokens());
-            // 思考模式：在请求体中启用/禁用
-            if (thinking) {
-                body.addProperty("enable_thinking", true);
-            } else {
-                JsonObject thinkingObj = new JsonObject();
-                thinkingObj.addProperty("type", "disabled");
-                JsonObject extraBody = new JsonObject();
-                extraBody.add("thinking", thinkingObj);
-                body.add("extra_body", extraBody);
+
+            // 根据模型名称判断是否需要添加关闭思考模式的参数
+            String model = MiaoChatConfig.getModel().toLowerCase();
+            if (!thinking) {
+                // 强制跳过规则：模型名称包含 thinking/reasoning/deepthink 后缀时无法关闭
+                boolean forcedThinking = model.endsWith("thinking") || model.endsWith("reasoning") || model.endsWith("deepthink");
+                if (!forcedThinking) {
+                    if (model.contains("grok")) {
+                        // Grok 系列
+                        if (model.contains("grok-3-mini")) {
+                            // grok-3-mini 特殊降级
+                            JsonObject reasoningObj = new JsonObject();
+                            reasoningObj.addProperty("effort", "low");
+                            body.add("reasoning", reasoningObj);
+                        } else if (model.matches(".*grok-4\\.2.*") || model.matches(".*grok-4\\.3.*")) {
+                            // grok-4.20 / grok-4.3 降级方案
+                            JsonObject reasoningObj = new JsonObject();
+                            reasoningObj.addProperty("effort", "none");
+                            body.add("reasoning", reasoningObj);
+                        } else {
+                            // 通用 Grok 关闭
+                            JsonObject reasoningObj = new JsonObject();
+                            reasoningObj.addProperty("enabled", false);
+                            body.add("reasoning", reasoningObj);
+                        }
+                    } else if (model.contains("gemini")) {
+                        // Gemini Flash/Lite
+                        body.addProperty("thinking_budget", 0);
+                    } else if (model.contains("qwen") || model.contains("vllm")) {
+                        // Qwen3 / vLLM 部署模型
+                        JsonObject templateKwargs = new JsonObject();
+                        templateKwargs.addProperty("enable_thinking", false);
+                        body.add("chat_template_kwargs", templateKwargs);
+                    } else {
+                        // Kimi / DeepSeek / MiMo / Doubao (通用)
+                        JsonObject thinkingObj = new JsonObject();
+                        thinkingObj.addProperty("type", "disabled");
+                        body.add("thinking", thinkingObj);
+                    }
+                }
             }
+            // 思考模式开启时不显式包含参数
 
             // debug: 记录请求详情
             if (debug) {
